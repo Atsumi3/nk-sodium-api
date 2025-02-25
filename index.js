@@ -5,44 +5,41 @@ const app = express();
 app.use(express.json());
 
 (async () => {
-    // libsodium の初期化を待つ
     await sodium.ready;
 
-    // サーバ起動時にランダムなシークレットキーを生成
-    // ※実運用の場合はキー管理に注意してください
-    const key = sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES);
-
-    // 暗号化エンドポイント
+    /**
+     * POST /encrypt
+     * リクエストボディで { text, publicKey } を受け取り、
+     * crypto_box_seal を用いて暗号化し、結果を base64 エンコードで返す。
+     *
+     * - text: 暗号化対象の平文
+     * - publicKey: 公開鍵（base64 エンコード済み）
+     */
     app.post('/encrypt', (req, res) => {
-        const { message } = req.body;
-        if (!message) {
-            return res.status(400).json({ error: 'No message provided' });
+        const { text, publicKey } = req.body;
+        if (!text || !publicKey) {
+            return res.status(400).json({ error: 'No text or publicKey provided' });
         }
-        const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
-        const ciphertext = sodium.crypto_secretbox_easy(message, nonce, key);
-        res.json({
-            nonce: Buffer.from(nonce).toString('base64'),
-            ciphertext: Buffer.from(ciphertext).toString('base64')
-        });
-    });
 
-    // 復号エンドポイント
-    app.post('/decrypt', (req, res) => {
-        const { nonce, ciphertext } = req.body;
-        if (!nonce || !ciphertext) {
-            return res.status(400).json({ error: 'Nonce or ciphertext not provided' });
-        }
         try {
-            const nonceBuf = Buffer.from(nonce, 'base64');
-            const ciphertextBuf = Buffer.from(ciphertext, 'base64');
-            const decrypted = sodium.crypto_secretbox_open_easy(ciphertextBuf, nonceBuf, key);
-            res.json({ message: Buffer.from(decrypted).toString() });
+            // 公開鍵は base64 で受け取っているため、デコードして Uint8Array に変換
+            const publicKeyBuf = Buffer.from(publicKey, 'base64');
+
+            // 平文を Uint8Array に変換
+            const message = sodium.from_string(text);
+
+            // crypto_box_seal で暗号化（復号には対応する秘密鍵が必要）
+            const ciphertext = sodium.crypto_box_seal(message, publicKeyBuf);
+
+            // 暗号化結果を base64 エンコードして返却
+            res.json({ encrypted: Buffer.from(ciphertext).toString('base64') });
         } catch (error) {
-            res.status(400).json({ error: 'Decryption failed' });
+            res.status(500).json({ error: 'Encryption failed: ' + error.message });
         }
     });
 
-    // サーバ起動
+    // ※ crypto_box_seal は一方向のシールボックス方式のため、ここでの復号エンドポイントは通常不要です。
+
     app.listen(3000, () => {
         console.log('Sodium API running on port 3000');
     });
