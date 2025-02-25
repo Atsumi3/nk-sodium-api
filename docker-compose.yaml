@@ -1,0 +1,5 @@
+services:
+  sodium-api:
+    build: .
+    ports:
+      - "4890:3000"
